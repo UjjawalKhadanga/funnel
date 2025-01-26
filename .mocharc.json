@@ -1,0 +1,9 @@
+{
+  "extension": ["ts"],
+  "reporter": "spec",
+  "spec": ["tests/**/*spec.ts"],
+  "loader": "ts-node/esm",
+  "node-option": ["experimental-specifier-resolution=node", "loader=ts-node/esm"],
+  "timeout": 0,
+  "exit": true
+}
