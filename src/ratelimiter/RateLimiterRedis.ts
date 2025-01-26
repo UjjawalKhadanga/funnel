@@ -24,7 +24,7 @@ export default class RateLimiterRedis {
     await this.configStore.set(key, config);
   }
 
-  async _checkAndLoadScript(): Promise<string> {
+  private async checkAndLoadScript(): Promise<string> {
     await this.scriptLoadMutex.runExclusive(async () => {
       if (!this.isScriptLoaded) {
         this.scriptSha = await this.client.script('LOAD', rateLimitScript) as string;
@@ -45,25 +45,40 @@ export default class RateLimiterRedis {
     return deleteRes === 1;
   }
 
-  async checkIfRequestCanGoThrough(keyName: string): Promise<Boolean> {
+  private async checkIfRequestCanGoThrough(keyName: string): Promise<Boolean> {
     const scriptResult = await this.client.evalsha(this.scriptSha, 1, keyName);
     if (scriptResult === ReturnCodes.SUCCESS) return true;
     console.log(ReturnCodes[scriptResult as number]);
     return false;
   }
 
-  async checkRateLimit(keyName: string) {
-    if (!this.isScriptLoaded) await this._checkAndLoadScript();
+  private async checkRateLimit(keyName: string) {
+    if (!this.isScriptLoaded) await this.checkAndLoadScript();
     try {
       return this.checkIfRequestCanGoThrough(keyName);
     } catch (err: any) {
       if (err.message.includes('NOSCRIPT')) {
         // Script was flushed from Redis, reload it
         this.isScriptLoaded = false;
-        await this._checkAndLoadScript();
+        await this.checkAndLoadScript();
         return this.checkIfRequestCanGoThrough(keyName);
       }
       throw err;
     }
+  }
+
+  async cleanup(): Promise<void> {
+    try {
+      await this.configStore.clear();
+      this.isScriptLoaded = false;
+      this.scriptSha = '';
+    } catch (error) {
+      throw new Error(`Cleanup failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  async disconnect(): Promise<void> {
+    await this.cleanup();
+    await this.client.quit();
   }
 }
