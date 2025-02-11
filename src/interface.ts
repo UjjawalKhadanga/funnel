@@ -1,15 +1,17 @@
-interface IRLConfig {
+type IRLConfig = {
   points: number;
   duration: number;
 }
 
+type Key = string;
+
 interface IRLConfigStore {
-  get(key: string): Promise<IRLConfig | null>;
-  set(key: string, value: IRLConfig): Promise<void>;
-  delete(key: string): Promise<void>;
+  get(key: Key): Promise<IRLConfig | null>;
+  set(key: Key, value: IRLConfig): Promise<void>;
+  delete(key: Key): Promise<void>;
   clear(): Promise<void>;
-  has(key: string): Promise<boolean>;
-  keys(): Promise<string[]>;
+  has(key: Key): Promise<boolean>;
+  keys(): Promise<Key[]>;
 }
 
-export { IRLConfig, IRLConfigStore };
+export { IRLConfig, IRLConfigStore, Key };

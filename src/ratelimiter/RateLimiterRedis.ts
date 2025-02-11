@@ -1,5 +1,5 @@
 import { Redis } from 'ioredis';
-import { IRLConfig, IRLConfigStore } from '../interface.js';
+import { IRLConfig, IRLConfigStore, Key } from '../interface.js';
 import RedisConfigStore from '../configstore/RedisConfigStore.js';
 import { rateLimitScript, ReturnCodes } from './lua/ratelimitscript.js';
 import { Mutex } from 'async-mutex';
@@ -20,7 +20,7 @@ export default class RateLimiterRedis {
     this.scriptLoadMutex = new Mutex(new Error('Chud gye guru'));
   }
 
-  async register(key: string, config: IRLConfig) {
+  async register(key: Key, config: IRLConfig) {
     await this.configStore.set(key, config);
   }
 
@@ -34,25 +34,25 @@ export default class RateLimiterRedis {
     return this.scriptSha;
   }
 
-  async consume(key: string): Promise<Boolean> {
+  async consume(key: Key): Promise<Boolean> {
     const result = await this.checkRateLimit(key);
     console.log(`${key}: ${result}`)
     return result;
   }
 
-  async clear(key: string): Promise<Boolean> {
+  async clear(key: Key): Promise<Boolean> {
     const deleteRes: number = await this.client.del(key);
     return deleteRes === 1;
   }
 
-  private async checkIfRequestCanGoThrough(keyName: string): Promise<Boolean> {
+  private async checkIfRequestCanGoThrough(keyName: Key): Promise<Boolean> {
     const scriptResult = await this.client.evalsha(this.scriptSha, 1, keyName);
     if (scriptResult === ReturnCodes.SUCCESS) return true;
     console.log(ReturnCodes[scriptResult as number]);
     return false;
   }
 
-  private async checkRateLimit(keyName: string) {
+  private async checkRateLimit(keyName: Key): Promise<Boolean> {
     if (!this.isScriptLoaded) await this.checkAndLoadScript();
     try {
       return this.checkIfRequestCanGoThrough(keyName);
