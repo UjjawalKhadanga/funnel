@@ -6,7 +6,7 @@ import { Mutex } from 'async-mutex';
 
 export default class RateLimiterRedis {
   private client: Redis;
-  private configStore: IRLConfigStore;
+  private configStore: RedisConfigStore;
   private scriptSha: string;
   private scriptLoadMutex: Mutex;
   private isScriptLoaded: boolean;
@@ -17,7 +17,7 @@ export default class RateLimiterRedis {
     this.configStore = new RedisConfigStore(client);
     this.scriptSha = '';
     this.isScriptLoaded = false;
-    this.scriptLoadMutex = new Mutex(new Error('Chud gye guru'));
+    this.scriptLoadMutex = new Mutex(new Error('Failed to load rate limit script'));
   }
 
   async register(key: Key, config: IRLConfig) {
@@ -30,7 +30,7 @@ export default class RateLimiterRedis {
         this.scriptSha = await this.client.script('LOAD', rateLimitScript) as string;
         this.isScriptLoaded = true;
       }
-    }).catch(err => new Error('Failed to load rate limit script'))
+    }).catch(err => console.log(err));
     return this.scriptSha;
   }
 
