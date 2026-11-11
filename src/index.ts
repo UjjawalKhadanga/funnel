@@ -15,15 +15,23 @@ app.get('/:key', async (req: express.Request, res: express.Response) => {
 })
 
 app.get('/:key/consume', async (req: express.Request, res: express.Response) => {
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  res.on('close', abort);
   try {
     const key = req.params.key;
-    const item = await ratelimiter.consume(key);
-    res.json({ message: item ? 'Key consumed' : 'Key not consumed', item });
+    await ratelimiter.consume(key, { signal: controller.signal });
+    res.json({ message: 'Key consumed' });
   } catch (e) {
-    console.log(e);
+    const message = e instanceof Error ? e.message : 'Failed to consume key';
+    if (!res.destroyed) res.status(400).json({ message });
+  } finally {
+    res.off('close', abort);
   }
 })
 
-app.listen(3000, () => {
-  console.log('Server is running on port 3000');
+const port = Number(process.env.PORT ?? 3001);
+
+app.listen(port, '127.0.0.1', () => {
+  console.log('Server is running at http://127.0.0.1:' + port);
 })

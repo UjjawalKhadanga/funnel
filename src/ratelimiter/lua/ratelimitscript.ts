@@ -11,56 +11,57 @@ enum ReturnCodes {
 const rateLimitScript = `
 local key_name = KEYS[1]
 
--- Get current timestamp in seconds from Redis
+-- Millisecond timestamp from Redis TIME (seconds, microseconds)
 local time_data = redis.call('TIME')
-local curr_timestamp = tonumber(time_data[1])
-
--- Generate a unique identifier for this request
-local unique_id = math.random(100000, 999999)
-local unique_timestamp = curr_timestamp .. ':' .. unique_id  -- Combine timestamp with unique ID
+local curr_ms = tonumber(time_data[1]) * 1000 + math.floor(tonumber(time_data[2]) / 1000)
+local unique_id = time_data[1] .. ':' .. time_data[2] .. ':' .. math.random(100000, 999999)
 
 -- Fetch configuration for the specific key
 local config_key = "${RL_CONFIG_STORE_KEY}"
 local config_str = redis.call('JSON.GET', config_key, '$.' .. key_name)
 
--- Check if configuration exists and is valid
-if not config_str or config_str == '' then
-    return ${ReturnCodes.NO_CONFIG}  -- No configuration found for this key, block the request
+-- {code, retryAfterMs}. retryAfterMs is how long until the oldest hit leaves the window.
+if not config_str or config_str == '' or config_str == '[]' or config_str == 'null' then
+    return {${ReturnCodes.NO_CONFIG}, 0}
 end
 
--- Parse the JSON configuration
 local config = cjson.decode(config_str)[1]
 if not config then
-    return ${ReturnCodes.INVALID_CONFIG}  -- Invalid configuration, block the request
+    return {${ReturnCodes.NO_CONFIG}, 0}
 end
 
 local duration = tonumber(config.duration)
 local points = tonumber(config.points)
 
-if not duration or not points then
-    return ${ReturnCodes.INVALID_CONFIG}  -- Invalid configuration, block the request
+if not duration or duration <= 0 or duration == math.huge or
+   not points or points < 1 or points > 9007199254740991 or points ~= math.floor(points) then
+    return {${ReturnCodes.INVALID_CONFIG}, 0}
 end
 
--- Check if key exists, if not, create it
+local duration_ms = duration * 1000
+
 if redis.call('EXISTS', key_name) == 0 then
-    redis.call('ZADD', key_name, curr_timestamp, unique_timestamp)
-    return ${ReturnCodes.SUCCESS}
+    redis.call('ZADD', key_name, curr_ms, unique_id)
+    return {${ReturnCodes.SUCCESS}, 0}
 end
 
--- Remove timestamps outside the duration window
-local cutoff_time = curr_timestamp - duration
+local cutoff_time = curr_ms - duration_ms
 redis.call('ZREMRANGEBYSCORE', key_name, 0, cutoff_time)
 
--- Check if request should be rate limited
 local count = redis.call('ZCARD', key_name)
 
 if count >= points then
-    return ${ReturnCodes.RATE_LIMIT_EXCEEDED}  -- Rate limit exceeded, block the request
+    local oldest = redis.call('ZRANGE', key_name, 0, 0, 'WITHSCORES')
+    local oldest_ms = tonumber(oldest[2])
+    local retry_after_ms = math.ceil(oldest_ms + duration_ms - curr_ms)
+    if retry_after_ms < 1 then
+        retry_after_ms = 1
+    end
+    return {${ReturnCodes.RATE_LIMIT_EXCEEDED}, retry_after_ms}
 end
 
--- Add current timestamp with unique identifier and allow the request
-redis.call('ZADD', key_name, curr_timestamp, unique_timestamp)
-return ${ReturnCodes.SUCCESS}
+redis.call('ZADD', key_name, curr_ms, unique_id)
+return {${ReturnCodes.SUCCESS}, 0}
 `;
 
 export { rateLimitScript, ReturnCodes };
